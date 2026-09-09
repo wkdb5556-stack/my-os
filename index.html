@@ -40,17 +40,143 @@ header{padding:20px 2px 15px;display:flex;justify-content:space-between;align-it
 </main>
 <nav class="nav"><button data-screen="today" class="active" onclick="show('today')"><span class="navIcon">◌</span>TODAY</button><button data-screen="plan" onclick="show('plan')"><span class="navIcon">□</span>PLAN</button><button data-screen="capture" onclick="show('capture')"><span class="navIcon">＋</span>CAPTURE</button><button data-screen="record" onclick="show('record')"><span class="navIcon">○</span>RECORD</button><button data-screen="think" onclick="show('think')"><span class="navIcon">✦</span>THINK</button></nav><button class="quick" onclick="openQuick('capture')">＋</button>
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet"><h2 id="modalTitle">기억해두기</h2><div id="modalBody"></div><div class="actions"><button class="secondary" onclick="closeModal()">취소</button><button class="primary" onclick="submitModal()">저장</button></div></div></div>
-<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettings()"><div class="sheet"><h2>MY OS</h2><p class="subtle">현재 버전은 휴대폰에 안전하게 기록을 쌓는 단계예요. 현재 버전은 이 기기에 기록을 저장합니다. 다음 개발 단계에서 클라우드 동기화를 연결할 수 있습니다.</p><div class="card softCard" style="margin-top:10px"><div class="small">현재 상태</div><div style="font-weight:750;margin-top:5px">이 아이폰에 안전하게 저장 중</div><div class="small" style="margin-top:4px">백업 파일을 만들어 다른 기기에서 복원할 수 있어요.</div></div><div class="actions"><button class="secondary" onclick="exportData()">데이터 백업</button><button class="secondary" onclick="document.getElementById('importFile').click()">백업 복원</button></div><input id="importFile" class="hidden" type="file" accept="application/json" onchange="importData(event)"><div class="divider"></div><button class="tinyBtn" onclick="if(confirm('모든 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')){localStorage.removeItem('myos_v13');location.reload()}" style="color:var(--danger)">모든 기록 삭제</button></div></div>
+<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettings()"><div class="sheet"><h2>MY OS</h2><p class="subtle">기록은 이 아이폰에 먼저 저장되고, Supabase 연결 후 클라우드에도 동기화됩니다.</p><div class="card softCard" style="margin-top:10px"><div class="small">현재 상태</div><div id="cloudStatus" style="font-weight:750;margin-top:5px">클라우드 연결 확인 중…</div><div class="small" style="margin-top:4px">클라우드 연결은 이 기기에서 한 번만 설정하면 됩니다.</div></div><div class="actions"><button class="secondary" onclick="openCloudSetup();closeSettings()">클라우드 연결</button><button class="secondary" onclick="exportData()">데이터 백업</button><button class="secondary" onclick="document.getElementById('importFile').click()">백업 복원</button></div><input id="importFile" class="hidden" type="file" accept="application/json" onchange="importData(event)"><div class="divider"></div><button class="tinyBtn" onclick="if(confirm('모든 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')){localStorage.removeItem(KEY);localStorage.removeItem(SB_CONFIG_KEY);location.reload()}" style="color:var(--danger)">모든 기록 삭제</button></div></div>
 <div id="toast" class="toast"></div>
 <script>
-const KEY='myos_v13';
+const KEY='myos_v14';
+const OLD_KEY='myos_v13';
+const SB_CONFIG_KEY='myos_supabase_config_v1';
 const missions=[
  ["I'm trying to make this easier.","이걸 더 쉽게 만들려고 하고 있어요."],["I was supposed to call you.","너에게 전화하기로 했었어."],["I'll figure it out.","내가 방법을 찾아볼게."],["I don't want to put it off.","미루고 싶지 않아."],["Let me think about it.","그것에 대해 생각해볼게."],["I ended up working late.","결국 늦게까지 일했어."],["I'm getting used to it.","점점 익숙해지고 있어."]
 ];
 const base={tasks:[],inbox:[],schedules:[],money:[],english:{},diaries:[],insights:[],think:[],rewards:{7:'',14:'',30:'',50:'',100:''},rewardReceived:{}};
-let state=load(); let recordTab='money'; let moneyType='expense'; let modalType='capture';
-function load(){try{return Object.assign(structuredClone(base),JSON.parse(localStorage.getItem(KEY)||'{}'))}catch(e){return structuredClone(base)}}
-function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+let state=loadLocal(); let recordTab='money'; let moneyType='expense'; let modalType='capture';
+let sb=null, sbUser=null, cloudReady=false, cloudBusy=false, syncTimer=null;
+
+function loadLocal(){
+  try{
+    const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY)||'{}';
+    return Object.assign(structuredClone(base),JSON.parse(raw));
+  }catch(e){return structuredClone(base)}
+}
+function saveLocal(){localStorage.setItem(KEY,JSON.stringify(state))}
+function save(){saveLocal();queueCloudSync()}
+function cfg(){try{return JSON.parse(localStorage.getItem(SB_CONFIG_KEY)||'null')}catch(e){return null}}
+
+function updateCloudStatus(){
+  const el=document.getElementById('cloudStatus');
+  if(el) el.textContent=cloudReady?'☁️ 클라우드에 동기화 중':'이 아이폰에만 저장 중';
+}
+function openCloudSetup(){
+  const c=cfg(); 
+  document.getElementById('sbUrl').value=c?.url||'';
+  document.getElementById('sbKey').value=c?.key||'';
+  document.getElementById('cloudSetup').classList.add('open');
+}
+function closeCloudSetup(){document.getElementById('cloudSetup').classList.remove('open')}
+
+async function connectCloud(){
+  const url=document.getElementById('sbUrl').value.trim().replace(/\/$/,'');
+  const key=document.getElementById('sbKey').value.trim();
+  if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) || !/^sb_publishable_/.test(key)){
+    toast('Project URL과 sb_publishable_ 키를 확인해주세요'); return;
+  }
+  localStorage.setItem(SB_CONFIG_KEY,JSON.stringify({url,key}));
+  closeCloudSetup();
+  await initCloud(true);
+}
+
+async function initCloud(showErrors=false){
+  try{
+    const c=cfg();
+    if(!c || !window.supabase){updateCloudStatus();return false;}
+    sb=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    let {data:{session}}=await sb.auth.getSession();
+    if(!session){
+      const r=await sb.auth.signInAnonymously();
+      if(r.error) throw r.error;
+      session=r.data.session;
+    }
+    sbUser=session.user;
+    cloudReady=true;
+    updateCloudStatus();
+    await pullCloud();
+    return true;
+  }catch(e){
+    cloudReady=false; updateCloudStatus();
+    console.error('Supabase init:',e);
+    if(showErrors) toast('연결 실패: Supabase에서 익명 로그인을 켜주세요');
+    return false;
+  }
+}
+
+async function pullCloud(){
+  if(!cloudReady||!sbUser)return;
+  const uid=sbUser.id;
+  const get=async(table)=>{
+    const r=await sb.from(table).select('*').eq('user_id',uid);
+    if(r.error)throw r.error; return r.data||[];
+  };
+  try{
+    const [tasks,captures,schedules,money,lessons,diaries,insights,thoughts,rewards]=await Promise.all([
+      get('tasks'),get('captures'),get('schedules'),get('expenses'),get('english_lessons'),
+      get('diaries'),get('insights'),get('thoughts'),get('rewards')
+    ]);
+    const any=[tasks,captures,schedules,money,lessons,diaries,insights,thoughts,rewards].some(a=>a.length);
+    if(!any){await pushAll();return;}
+    state.tasks=tasks.map(x=>({id:x.id,text:x.title,date:x.date||x.due_date,done:!!x.completed}));
+    state.inbox=captures.map(x=>({id:x.id,text:x.content,date:(x.created_at||'').slice(0,10)||kToday()}));
+    state.schedules=schedules.map(x=>({id:x.id,text:x.title,date:x.date,time:(x.start_time||'09:00').slice(0,5)}));
+    state.money=money.map(x=>({id:x.id,memo:x.memo||x.category||'',amount:Number(x.amount),date:x.date,type:x.type}));
+    state.english={};
+    lessons.forEach(x=>state.english[x.date]={sentence:x.sentence,meaning:x.meaning||'',done:!!x.completed});
+    state.diaries=diaries.map(x=>({id:x.id,date:x.date,text:x.content}));
+    state.insights=insights.map(x=>({id:x.id,date:x.date,text:x.content}));
+    state.think=thoughts.map(x=>({id:x.id,date:(x.created_at||'').slice(0,10)||kToday(),text:x.content}));
+    state.rewards={7:'',14:'',30:'',50:'',100:''};state.rewardReceived={};
+    rewards.forEach(x=>{state.rewards[x.milestone]=x.reward;state.rewardReceived[x.milestone]=!!x.received});
+    saveLocal();renderAll();
+  }catch(e){console.error('Supabase pull:',e);toast('클라우드 데이터를 불러오지 못했어요')}
+}
+
+function queueCloudSync(){
+  if(!cloudReady)return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(pushAll,700);
+}
+
+async function replaceRows(table,rows){
+  const del=await sb.from(table).delete().eq('user_id',sbUser.id);
+  if(del.error)throw del.error;
+  if(!rows.length)return;
+  const ins=await sb.from(table).insert(rows);
+  if(ins.error)throw ins.error;
+}
+
+async function pushAll(){
+  if(!cloudReady||!sbUser||cloudBusy)return;
+  cloudBusy=true;
+  const uid=sbUser.id;
+  try{
+    // Delete/reinsert keeps cloud exactly aligned with the small personal dataset
+    // and correctly handles local deletions without needing a server-side delete map.
+    await replaceRows('insights',state.insights.map(x=>({user_id:uid,date:x.date,content:x.text})));
+    await replaceRows('diaries',state.diaries.map(x=>({user_id:uid,date:x.date,content:x.text})));
+    await replaceRows('thoughts',state.think.map(x=>({user_id:uid,content:x.text,created_at:x.date+'T00:00:00Z'})));
+    await replaceRows('captures',state.inbox.map(x=>({user_id:uid,content:x.text,created_at:x.date+'T00:00:00Z'})));
+    await replaceRows('tasks',state.tasks.map(x=>({user_id:uid,title:x.text,date:x.date||null,due_date:x.date||null,completed:!!x.done,completed_at:x.done?new Date().toISOString():null,source:'manual'})));
+    await replaceRows('schedules',state.schedules.map(x=>({user_id:uid,title:x.text,date:x.date,start_time:x.time||null})));
+    await replaceRows('expenses',state.money.map(x=>({user_id:uid,date:x.date,type:x.type,amount:x.amount,memo:x.memo||''})));
+    const lessons=Object.entries(state.english).map(([date,x])=>({user_id:uid,date,sentence:x.sentence||getMission()[0],meaning:x.meaning||'',completed:!!x.done}));
+    await replaceRows('english_lessons',lessons);
+    await replaceRows('rewards',Object.entries(state.rewards).filter(([_,v])=>v).map(([n,v])=>({user_id:uid,milestone:Number(n),reward:v,received:!!state.rewardReceived[n],received_at:state.rewardReceived[n]?new Date().toISOString():null})));
+    toast('☁️ 저장됨');
+  }catch(e){
+    console.error('Supabase push:',e);
+    toast('클라우드 저장 실패');
+  }finally{cloudBusy=false}
+}
+
 function pad(n){return String(n).padStart(2,'0')}
 function kToday(){const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
 function monthKey(){return kToday().slice(0,7)}
@@ -94,5 +220,16 @@ function openSettings(){document.getElementById('settingsModal').classList.add('
 function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='MY_OS_backup_'+kToday()+'.json';a.click();URL.revokeObjectURL(a.href);toast('백업 파일을 만들었어요')}
 function importData(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{state=Object.assign(structuredClone(base),JSON.parse(r.result));save();closeSettings();renderAll();toast('백업을 복원했어요')}catch(err){toast('백업 파일을 읽지 못했어요')}};r.readAsText(f);e.target.value=''}
 function renderAll(){renderToday();renderPlan();renderInbox();renderRecord();renderThink()}
-renderAll();if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
-</script></div></body></html>
+renderAll();updateCloudStatus();initCloud(false);if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
+</script></div>
+<div id="cloudSetup" class="modal" onclick="if(event.target===this)closeCloudSetup()">
+  <div class="sheet">
+    <div class="modalHead"><b>MY OS 연결</b><button onclick="closeCloudSetup()">닫기</button></div>
+    <div class="small" style="margin-bottom:12px">Supabase의 Project URL과 Publishable key를 한 번만 입력하면 MY OS 기록이 클라우드에 저장됩니다.</div>
+    <input id="sbUrl" class="input" placeholder="Project URL (https://....supabase.co)" autocomplete="off">
+    <input id="sbKey" class="input" placeholder="Publishable key (sb_publishable_...)" style="margin-top:8px" autocomplete="off">
+    <button class="primary" style="width:100%;margin-top:12px" onclick="connectCloud()">연결하기</button>
+    <div class="small" style="margin-top:10px;color:var(--muted)">Secret key는 입력하지 마세요.</div>
+  </div>
+</div>
+</body></html>

@@ -1,15 +1,18 @@
-# MY OS — iPhone Final Upload Package
+# MY OS iPhone v13 Cloud
 
-GitHub Pages에 올릴 최종 파일 묶음입니다.
+GitHub Pages용 iPhone PWA 프론트엔드입니다.
 
-## 업로드할 파일
+## Supabase 연결
+1. Supabase 프로젝트에서 Anonymous Sign-Ins를 켭니다.
+2. 앱의 설정 → 클라우드 연결에서 Project URL과 Publishable key를 입력합니다.
+3. Secret key는 절대 입력하지 않습니다.
+
+초기에는 Anonymous Auth를 사용하므로 별도 회원가입 없이 시작합니다. 나중에 Apple/Google/Email 로그인으로 계정을 연결할 수 있습니다.
+
+## 포함
 - index.html
 - manifest.webmanifest
 - sw.js
 - icon-1024.png
 - apple-touch-icon.png
-
-모든 파일을 GitHub 저장소의 최상위(root)에 올리세요. `index.html`은 반드시 root에 있어야 합니다.
-
-## 주의
-현재 데이터는 이 iPhone의 브라우저 저장소(localStorage)에 저장됩니다. 앱 기능/UX 최종 검증용 버전이며, 클라우드 동기화와 실제 AI 연결은 다음 개발 단계입니다.
+- README.md
