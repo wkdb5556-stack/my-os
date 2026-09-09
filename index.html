@@ -40,23 +40,24 @@ header{padding:20px 2px 15px;display:flex;justify-content:space-between;align-it
 </main>
 <nav class="nav"><button data-screen="today" class="active" onclick="show('today')"><span class="navIcon">◌</span>TODAY</button><button data-screen="plan" onclick="show('plan')"><span class="navIcon">□</span>PLAN</button><button data-screen="capture" onclick="show('capture')"><span class="navIcon">＋</span>CAPTURE</button><button data-screen="record" onclick="show('record')"><span class="navIcon">○</span>RECORD</button><button data-screen="think" onclick="show('think')"><span class="navIcon">✦</span>THINK</button></nav><button class="quick" onclick="openQuick('capture')">＋</button>
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet"><h2 id="modalTitle">기억해두기</h2><div id="modalBody"></div><div class="actions"><button class="secondary" onclick="closeModal()">취소</button><button class="primary" onclick="submitModal()">저장</button></div></div></div>
-<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettings()"><div class="sheet"><h2>MY OS</h2><p class="subtle">기록은 이 아이폰에 먼저 저장되고, Supabase 연결 후 클라우드에도 동기화됩니다.</p><div class="card softCard" style="margin-top:10px"><div class="small">현재 상태</div><div id="cloudStatus" style="font-weight:750;margin-top:5px">클라우드 연결 확인 중…</div><div class="small" style="margin-top:4px">클라우드 연결은 이 기기에서 한 번만 설정하면 됩니다.</div></div><div class="actions"><button class="secondary" onclick="openCloudSetup();closeSettings()">클라우드 연결</button><button class="secondary" onclick="initCloud(true)">연결 다시 확인</button><button class="secondary" onclick="exportData()">데이터 백업</button><button class="secondary" onclick="document.getElementById('importFile').click()">백업 복원</button></div><input id="importFile" class="hidden" type="file" accept="application/json" onchange="importData(event)"><div class="divider"></div><button class="tinyBtn" onclick="if(confirm('모든 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')){localStorage.removeItem(KEY);localStorage.removeItem(SB_CONFIG_KEY);location.reload()}" style="color:var(--danger)">모든 기록 삭제</button></div></div>
+<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettings()"><div class="sheet"><h2>MY OS</h2><p class="subtle">기록은 이 아이폰에 먼저 저장되고, Supabase 연결 후 클라우드에도 동기화됩니다.</p><div class="card softCard" style="margin-top:10px"><div class="small">현재 상태</div><div id="cloudStatus" style="font-weight:750;margin-top:5px">클라우드 연결 확인 중…</div><div id="cloudError" class="small" style="margin-top:6px;color:var(--danger);word-break:break-word"></div><div class="small" style="margin-top:4px">클라우드 연결은 이 기기에서 한 번만 설정하면 됩니다.</div></div><div class="actions"><button class="secondary" onclick="openCloudSetup();closeSettings()">클라우드 연결</button><button class="secondary" onclick="initCloud(true)">연결 다시 확인</button><button class="secondary" onclick="exportData()">데이터 백업</button><button class="secondary" onclick="document.getElementById('importFile').click()">백업 복원</button></div><input id="importFile" class="hidden" type="file" accept="application/json" onchange="importData(event)"><div class="divider"></div><button class="tinyBtn" onclick="if(confirm('모든 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')){localStorage.removeItem(KEY);localStorage.removeItem(SB_CONFIG_KEY);location.reload()}" style="color:var(--danger)">모든 기록 삭제</button></div></div>
 <div id="toast" class="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const KEY='myos_v14';
-const OLD_KEY='myos_v13';
+const KEY='myos_v15';
+const OLD_KEY='myos_v14';
+const OLD_KEY2='myos_v13';
 const SB_CONFIG_KEY='myos_supabase_config_v1';
 const missions=[
  ["I'm trying to make this easier.","이걸 더 쉽게 만들려고 하고 있어요."],["I was supposed to call you.","너에게 전화하기로 했었어."],["I'll figure it out.","내가 방법을 찾아볼게."],["I don't want to put it off.","미루고 싶지 않아."],["Let me think about it.","그것에 대해 생각해볼게."],["I ended up working late.","결국 늦게까지 일했어."],["I'm getting used to it.","점점 익숙해지고 있어."]
 ];
 const base={tasks:[],inbox:[],schedules:[],money:[],english:{},diaries:[],insights:[],think:[],rewards:{7:'',14:'',30:'',50:'',100:''},rewardReceived:{}};
 let state=loadLocal(); let recordTab='money'; let moneyType='expense'; let modalType='capture';
-let sb=null, sbUser=null, cloudReady=false, cloudBusy=false, syncTimer=null;
+let sb=null, sbUser=null, cloudReady=false, cloudBusy=false, syncTimer=null, cloudError='';
 
 function loadLocal(){
   try{
-    const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY)||'{}';
+    const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY)||localStorage.getItem(OLD_KEY2)||'{}';
     return Object.assign(structuredClone(base),JSON.parse(raw));
   }catch(e){return structuredClone(base)}
 }
@@ -66,7 +67,9 @@ function cfg(){try{return JSON.parse(localStorage.getItem(SB_CONFIG_KEY)||'null'
 
 function updateCloudStatus(){
   const el=document.getElementById('cloudStatus');
-  if(el) el.textContent=cloudReady?'☁️ 클라우드에 동기화 중':'이 아이폰에만 저장 중';
+  if(el) el.textContent=cloudReady?'☁️ 클라우드 연결됨':'이 아이폰에만 저장 중';
+  const note=document.getElementById('cloudError');
+  if(note) note.textContent=cloudError||'';
 }
 function openCloudSetup(){
   const c=cfg(); 
@@ -87,6 +90,7 @@ async function connectCloud(){
   await initCloud(true);
 }
 
+
 async function initCloud(showErrors=false){
   try{
     const c=cfg();
@@ -100,14 +104,19 @@ async function initCloud(showErrors=false){
       session=r.data.session;
     }
     sbUser=session.user;
-    cloudReady=true;
-    updateCloudStatus();
+    // A real table read is the final connectivity check. This catches missing
+    // Data API exposure/grants instead of falsely reporting a local-only state.
+    const probe=await sb.from('captures').select('id').limit(1);
+    if(probe.error) throw new Error('DB 접근 실패: '+probe.error.message+' (code '+(probe.error.code||'unknown')+')');
+    cloudReady=true; cloudError=''; updateCloudStatus();
     await pullCloud();
+    await pushAll();
+    updateCloudStatus();
     return true;
   }catch(e){
-    cloudReady=false; updateCloudStatus();
+    cloudReady=false; cloudError=e?.message||'알 수 없는 오류'; updateCloudStatus();
     console.error('Supabase init:',e);
-    if(showErrors) toast('연결 실패: '+(e?.message||'설정을 확인해주세요'));
+    if(showErrors) toast('연결 실패: '+cloudError);
     return false;
   }
 }
@@ -138,7 +147,7 @@ async function pullCloud(){
     state.rewards={7:'',14:'',30:'',50:'',100:''};state.rewardReceived={};
     rewards.forEach(x=>{state.rewards[x.milestone]=x.reward;state.rewardReceived[x.milestone]=!!x.received});
     saveLocal();renderAll();
-  }catch(e){console.error('Supabase pull:',e);toast('클라우드 데이터를 불러오지 못했어요')}
+  }catch(e){cloudError='DB 읽기 실패: '+(e?.message||'알 수 없는 오류'); updateCloudStatus(); console.error('Supabase pull:',e);toast(cloudError)}
 }
 
 function queueCloudSync(){
@@ -174,8 +183,10 @@ async function pushAll(){
     await replaceRows('rewards',Object.entries(state.rewards).filter(([_,v])=>v).map(([n,v])=>({user_id:uid,milestone:Number(n),reward:v,received:!!state.rewardReceived[n],received_at:state.rewardReceived[n]?new Date().toISOString():null})));
     toast('☁️ 저장됨');
   }catch(e){
+    cloudError='DB 저장 실패: '+(e?.message||'알 수 없는 오류');
+    updateCloudStatus();
     console.error('Supabase push:',e);
-    toast('클라우드 저장 실패');
+    toast(cloudError);
   }finally{cloudBusy=false}
 }
 
