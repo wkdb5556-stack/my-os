@@ -40,8 +40,9 @@ header{padding:20px 2px 15px;display:flex;justify-content:space-between;align-it
 </main>
 <nav class="nav"><button data-screen="today" class="active" onclick="show('today')"><span class="navIcon">◌</span>TODAY</button><button data-screen="plan" onclick="show('plan')"><span class="navIcon">□</span>PLAN</button><button data-screen="capture" onclick="show('capture')"><span class="navIcon">＋</span>CAPTURE</button><button data-screen="record" onclick="show('record')"><span class="navIcon">○</span>RECORD</button><button data-screen="think" onclick="show('think')"><span class="navIcon">✦</span>THINK</button></nav><button class="quick" onclick="openQuick('capture')">＋</button>
 <div id="modal" class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet"><h2 id="modalTitle">기억해두기</h2><div id="modalBody"></div><div class="actions"><button class="secondary" onclick="closeModal()">취소</button><button class="primary" onclick="submitModal()">저장</button></div></div></div>
-<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettings()"><div class="sheet"><h2>MY OS</h2><p class="subtle">기록은 이 아이폰에 먼저 저장되고, Supabase 연결 후 클라우드에도 동기화됩니다.</p><div class="card softCard" style="margin-top:10px"><div class="small">현재 상태</div><div id="cloudStatus" style="font-weight:750;margin-top:5px">클라우드 연결 확인 중…</div><div class="small" style="margin-top:4px">클라우드 연결은 이 기기에서 한 번만 설정하면 됩니다.</div></div><div class="actions"><button class="secondary" onclick="openCloudSetup();closeSettings()">클라우드 연결</button><button class="secondary" onclick="exportData()">데이터 백업</button><button class="secondary" onclick="document.getElementById('importFile').click()">백업 복원</button></div><input id="importFile" class="hidden" type="file" accept="application/json" onchange="importData(event)"><div class="divider"></div><button class="tinyBtn" onclick="if(confirm('모든 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')){localStorage.removeItem(KEY);localStorage.removeItem(SB_CONFIG_KEY);location.reload()}" style="color:var(--danger)">모든 기록 삭제</button></div></div>
+<div id="settingsModal" class="modal" onclick="if(event.target===this)closeSettings()"><div class="sheet"><h2>MY OS</h2><p class="subtle">기록은 이 아이폰에 먼저 저장되고, Supabase 연결 후 클라우드에도 동기화됩니다.</p><div class="card softCard" style="margin-top:10px"><div class="small">현재 상태</div><div id="cloudStatus" style="font-weight:750;margin-top:5px">클라우드 연결 확인 중…</div><div class="small" style="margin-top:4px">클라우드 연결은 이 기기에서 한 번만 설정하면 됩니다.</div></div><div class="actions"><button class="secondary" onclick="openCloudSetup();closeSettings()">클라우드 연결</button><button class="secondary" onclick="initCloud(true)">연결 다시 확인</button><button class="secondary" onclick="exportData()">데이터 백업</button><button class="secondary" onclick="document.getElementById('importFile').click()">백업 복원</button></div><input id="importFile" class="hidden" type="file" accept="application/json" onchange="importData(event)"><div class="divider"></div><button class="tinyBtn" onclick="if(confirm('모든 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')){localStorage.removeItem(KEY);localStorage.removeItem(SB_CONFIG_KEY);location.reload()}" style="color:var(--danger)">모든 기록 삭제</button></div></div>
 <div id="toast" class="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const KEY='myos_v14';
 const OLD_KEY='myos_v13';
@@ -89,7 +90,8 @@ async function connectCloud(){
 async function initCloud(showErrors=false){
   try{
     const c=cfg();
-    if(!c || !window.supabase){updateCloudStatus();return false;}
+    if(!c){updateCloudStatus();return false;}
+    if(!window.supabase){throw new Error('Supabase 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');}
     sb=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     let {data:{session}}=await sb.auth.getSession();
     if(!session){
@@ -105,7 +107,7 @@ async function initCloud(showErrors=false){
   }catch(e){
     cloudReady=false; updateCloudStatus();
     console.error('Supabase init:',e);
-    if(showErrors) toast('연결 실패: Supabase에서 익명 로그인을 켜주세요');
+    if(showErrors) toast('연결 실패: '+(e?.message||'설정을 확인해주세요'));
     return false;
   }
 }
